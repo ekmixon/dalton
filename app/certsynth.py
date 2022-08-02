@@ -43,29 +43,26 @@ def pem_cert_validate(pem_str):
        True if valid form False otherwise
     """
     lines = pem_str.splitlines()
-    if lines[0] != '-----BEGIN CERTIFICATE-----':
+    if (
+        lines[0] != '-----BEGIN CERTIFICATE-----'
+        or lines[-1] != '-----END CERTIFICATE-----'
+    ):
         return False
-    elif lines[-1] != '-----END CERTIFICATE-----':
-        return False
-    if not re.match(r'[a-zA-Z0-9+/]={0,2}', "".join(lines[1:-1])):
-        return False
-    else:
-        return True
+    return bool(re.match(r'[a-zA-Z0-9+/]={0,2}', "".join(lines[1:-1])))
 
 
 def pem_to_der(pem_str):
     """Convert a PEM string to DER format"""
     lines = pem_str.strip().splitlines()
-    der = binascii.a2b_base64(''.join(lines[1:-1]))
-    return der
+    return binascii.a2b_base64(''.join(lines[1:-1]))
 
 
 def to_synth_bytes(some_str):
     """Convert a string to flowsynth formatted hex"""
     str_hex = binascii.hexlify(some_str).decode("utf-8")
-    out = "\\x" + "\\x".join(
-        [str_hex[i:i + 2] for i in range(0, len(str_hex), 2)])
-    return out
+    return "\\x" + "\\x".join(
+        [str_hex[i : i + 2] for i in range(0, len(str_hex), 2)]
+    )
 
 
 def cert_to_synth(cert_str, format):

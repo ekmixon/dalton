@@ -2,6 +2,7 @@
 """
 Dalton - a UI and management tool for submitting and viewing IDS jobs
 """
+
 # Copyright 2017 Secureworks
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -109,19 +110,21 @@ except Exception as e:
 for engine in ['suricata', 'snort']:
     ruleset_dir = os.path.join(RULESET_STORAGE_PATH, engine)
     rules = [f for f in os.listdir(ruleset_dir) if (os.path.isfile(os.path.join(ruleset_dir, f)) and f.endswith(".rules"))]
-    if len(rules) == 0:
-        filename = "ET-%s-all-%s.rules" % (datetime.datetime.utcnow().strftime("%Y%m%d"), engine)
+    if not rules:
+        filename = f'ET-{datetime.datetime.utcnow().strftime("%Y%m%d")}-all-{engine}.rules'
+
         logger.info("No rulesets for %s found. Downloading the latest ET set as '%s'" % (engine, filename))
-        if engine == "suricata":
-            url = "https://rules.emergingthreats.net/open/suricata-4.0/emerging.rules.tar.gz"
         if engine == "snort":
             url = "https://rules.emergingthreats.net/open/snort-2.9.0/emerging.rules.tar.gz"
-        command = "%s --url %s --merged %s" % (RULECAT_SCRIPT, url, os.path.join(ruleset_dir, filename))
+        elif engine == "suricata":
+            url = "https://rules.emergingthreats.net/open/suricata-4.0/emerging.rules.tar.gz"
+        command = f"{RULECAT_SCRIPT} --url {url} --merged {os.path.join(ruleset_dir, filename)}"
+
         try:
             subprocess.call(command, stdin=None, stdout=None, stderr=None, shell=True)
         except Exception as e:
-            logger.info("Unable to download ruleset for %s" % engine)
-            logger.debug("Exception: %s" % e)
+            logger.info(f"Unable to download ruleset for {engine}")
+            logger.debug(f"Exception: {e}")
 
 # check for sane timeout values
 if REDIS_EXPIRE <= 0:
@@ -159,7 +162,7 @@ logger.info("Dalton Started.")
 
 """ returns normalized path; used to help prevent directory traversal """
 def clean_path(mypath):
-    return os.path.normpath('/' + mypath).lstrip('/')
+    return os.path.normpath(f'/{mypath}').lstrip('/')
 
 
 def prefix_strip(mystring, prefixes=["rust_"]):
@@ -194,7 +197,7 @@ def delete_temp_files(job_id):
     """ deletes temp files for given job ID"""
     global TEMP_STORAGE_PATH
     if os.path.exists(TEMP_STORAGE_PATH):
-        for file in glob.glob(os.path.join(TEMP_STORAGE_PATH, "%s*" % job_id)):
+        for file in glob.glob(os.path.join(TEMP_STORAGE_PATH, f"{job_id}*")):
             if os.path.isfile(file):
                 os.unlink(file)
     if os.path.exists(os.path.join(TEMP_STORAGE_PATH, job_id)):
@@ -215,15 +218,10 @@ def api_get_prod_rulesets(engine):
     if engine is None or engine == '' or engine not in supported_engines:
         return Response("Invalid 'engine' supplied.  Must be one of %s.\nExample URI:\n\n/dalton/controller_api/get-prod-rulesets/suricata" % supported_engines, 
                         status=400, mimetype='text/plain', headers = {'X-Dalton-Webapp':'OK'})
-    # return json
-    ruleset_list = []
     # this is a 2D array with filename and full path for each rules file
     #  but this function only returns a 1D array with full paths
     current_rulesets = get_rulesets(engine)
-    for ruleset in current_rulesets:
-        if len(ruleset) > 1:
-            ruleset_list.append(ruleset[1])
-
+    ruleset_list = [ruleset[1] for ruleset in current_rulesets if len(ruleset) > 1]
     json_response = {'prod-rulesets': ruleset_list}
     return Response(json.dumps(json_response), status=200, mimetype='application/json', headers = {'X-Dalton-Webapp':'OK'})
 
@@ -231,7 +229,7 @@ def get_rulesets(engine=''):
     """ return a list of locally stored ruleset for jobs to use """
     global RULESET_STORAGE_PATH
     ruleset_list = []
-    logger.debug("in get_rulesets(engine=%s)" % engine)
+    logger.debug(f"in get_rulesets(engine={engine})")
     # engine var should already be validated but just in case
     if not re.match(r"^[a-zA-Z0-9\_\-\.]*$", engine):
         logger.error("Invalid engine value '%s' in get_rulesets()" % engine)
@@ -257,33 +255,33 @@ def get_rulesets(engine=''):
 def set_job_status_msg(jobid, msg):
     """set a job's status message """
     global r
-    r.set("%s-status" % jobid, msg)
+    r.set(f"{jobid}-status", msg)
     # status keys do not expire if/when they are queued
     if msg != "Queued":
-        if r.get("%s-teapotjob" % jobid):
-            r.expire("%s-status" % jobid, TEAPOT_REDIS_EXPIRE)
+        if r.get(f"{jobid}-teapotjob"):
+            r.expire(f"{jobid}-status", TEAPOT_REDIS_EXPIRE)
         else:
-            r.expire("%s-status" % jobid, REDIS_EXPIRE)
+            r.expire(f"{jobid}-status", REDIS_EXPIRE)
 
 def get_job_status_msg(jobid):
     """returns a job's status message"""
-    return r.get("%s-status" % jobid)
+    return r.get(f"{jobid}-status")
 
 
 def set_job_status(jobid, status):
     """set's a job status code"""
     global r
-    r.set("%s-statcode" % jobid, status)
+    r.set(f"{jobid}-statcode", status)
     # statcode keys do not expire if/when they are queued
     if status != STAT_CODE_QUEUED:
-        if r.get("%s-teapotjob" % jobid):
-            r.expire("%s-statcode" % jobid, TEAPOT_REDIS_EXPIRE)
+        if r.get(f"{jobid}-teapotjob"):
+            r.expire(f"{jobid}-statcode", TEAPOT_REDIS_EXPIRE)
         else:
-            r.expire("%s-statcode" % jobid, REDIS_EXPIRE)
+            r.expire(f"{jobid}-statcode", REDIS_EXPIRE)
 
 def get_job_status(jobid):
     """return a job's status code"""
-    return r.get("%s-statcode" % jobid)
+    return r.get(f"{jobid}-statcode")
 
 def get_alert_count(jobid):
     if r.exists(f"{jobid}-alert"):
@@ -294,19 +292,19 @@ def get_alert_count(jobid):
 def set_keys_timeout(jobid):
     """set timeout of REDIS_EXPIRE seconds on keys that (should) be set when job results are posted"""
     EXPIRE_VALUE = REDIS_EXPIRE
-    if r.get("%s-teapotjob" % jobid):
+    if r.get(f"{jobid}-teapotjob"):
         EXPIRE_VALUE = TEAPOT_REDIS_EXPIRE
     try:
-        r.expire("%s-ids" % jobid, EXPIRE_VALUE)
-        r.expire("%s-perf" % jobid, EXPIRE_VALUE)
-        r.expire("%s-alert" % jobid, EXPIRE_VALUE)
-        r.expire("%s-error" % jobid, EXPIRE_VALUE)
-        r.expire("%s-debug" % jobid, EXPIRE_VALUE)
-        r.expire("%s-time" % jobid, EXPIRE_VALUE)
-        r.expire("%s-alert_detailed" % jobid, EXPIRE_VALUE)
-        r.expire("%s-other_logs" % jobid, EXPIRE_VALUE)
-        r.expire("%s-eve" % jobid, EXPIRE_VALUE)
-        r.expire("%s-teapotjob" % jobid, EXPIRE_VALUE)
+        r.expire(f"{jobid}-ids", EXPIRE_VALUE)
+        r.expire(f"{jobid}-perf", EXPIRE_VALUE)
+        r.expire(f"{jobid}-alert", EXPIRE_VALUE)
+        r.expire(f"{jobid}-error", EXPIRE_VALUE)
+        r.expire(f"{jobid}-debug", EXPIRE_VALUE)
+        r.expire(f"{jobid}-time", EXPIRE_VALUE)
+        r.expire(f"{jobid}-alert_detailed", EXPIRE_VALUE)
+        r.expire(f"{jobid}-other_logs", EXPIRE_VALUE)
+        r.expire(f"{jobid}-eve", EXPIRE_VALUE)
+        r.expire(f"{jobid}-teapotjob", EXPIRE_VALUE)
     except:
         pass
 
@@ -315,11 +313,11 @@ def expire_all_keys(jid):
     # using the redis keys function ('r.keys("%s-*" % jid)') searches thru all keys which is not
     #   efficient for large key sets so we are deleting each one individually
     global r
-    logger.debug("Dalton calling expire_all_keys() on job %s" % jid)
+    logger.debug(f"Dalton calling expire_all_keys() on job {jid}")
     keys_to_delete = ["ids", "perf", "alert", "alert_detailed", "other_logs", "eve", "error", "debug", "time", "statcode", "status", "start_time", "user", "tech", "submission_time", "teapotjob"]
     try:
         for cur_key in keys_to_delete:
-            r.delete("%s-%s" % (jid, cur_key))
+            r.delete(f"{jid}-{cur_key}")
     except:
         pass
 
@@ -327,19 +325,21 @@ def check_for_timeout(jobid):
     """checks to see if a job has been running more than JOB_RUN_TIMEOUT seconds and sets it to STAT_CODE_TIMEOUT and sets keys to expire"""
     global r
     try:
-        start_time = int(r.get("%s-start_time" % jobid))
+        start_time = int(r.get(f"{jobid}-start_time"))
     except:
         start_time = int(time.time()) - (JOB_RUN_TIMEOUT + 1)
-    #logger.debug("Dalton in check_for_timeout(): job %s start time: %d" % (jobid, start_time))
-    if not start_time or ((int(time.time()) - start_time) > JOB_RUN_TIMEOUT):
-        if int(get_job_status(jobid)) == STAT_CODE_RUNNING:
-            logger.info("Dalton in check_for_timeout(): job %s timed out.  Start time: %d, now: %d" % (jobid, start_time, int(time.time())))
-            set_job_status(jobid, STAT_CODE_TIMEOUT)
-            set_job_status_msg(jobid, "Job %s has timed out, please try submitting the job again." % jobid)
-            set_keys_timeout(jobid)
-            return True
-        else:
-            return False
+    if start_time and int(time.time()) - start_time <= JOB_RUN_TIMEOUT:
+        return False
+    if int(get_job_status(jobid)) == STAT_CODE_RUNNING:
+        logger.info("Dalton in check_for_timeout(): job %s timed out.  Start time: %d, now: %d" % (jobid, start_time, int(time.time())))
+        set_job_status(jobid, STAT_CODE_TIMEOUT)
+        set_job_status_msg(
+            jobid,
+            f"Job {jobid} has timed out, please try submitting the job again.",
+        )
+
+        set_keys_timeout(jobid)
+        return True
     else:
         return False
 
@@ -440,14 +440,14 @@ def get_engine_conf_file(sensor):
             # 'sensor' varible format example: suricata/5.0.0/mycustomfilename
             (engine, version, custom_config) = sensor.split('/', 2)
             epath = os.path.join(CONF_STORAGE_PATH, clean_path(engine))
-            if os.path.isfile(os.path.join(epath, "%s" % custom_config)):
-                conf_file = "%s" % custom_config
-            elif os.path.isfile(os.path.join(epath, "%s.yaml" % custom_config)):
-                conf_file = "%s.yaml" % custom_config
-            elif os.path.isfile(os.path.join(epath, "%s.yml" % custom_config)):
-                conf_file = "%s.yml" % custom_config
-            elif os.path.isfile(os.path.join(epath, "%s.conf" % custom_config)):
-                conf_file = "%s.conf" % custom_config
+            if os.path.isfile(os.path.join(epath, f"{custom_config}")):
+                conf_file = f"{custom_config}"
+            elif os.path.isfile(os.path.join(epath, f"{custom_config}.yaml")):
+                conf_file = f"{custom_config}.yaml"
+            elif os.path.isfile(os.path.join(epath, f"{custom_config}.yml")):
+                conf_file = f"{custom_config}.yml"
+            elif os.path.isfile(os.path.join(epath, f"{custom_config}.conf")):
+                conf_file = f"{custom_config}.conf"
             if conf_file:
                 conf_file = (os.path.join(epath, clean_path(conf_file)))
                 logger.debug(f"Found custom config file: '{conf_file}'")
@@ -463,12 +463,14 @@ def get_engine_conf_file(sensor):
             epath = os.path.join(CONF_STORAGE_PATH, clean_path(engine))
 
             filelist = [f for f in os.listdir(epath) if os.path.isfile(os.path.join(epath, f))]
-            # assumes an extension (e.g. '.yaml', '.conf') on engine config files
-            # if exact match, just use that instead of relying on LooseVersion
-            files = [f for f in filelist if os.path.splitext(f)[0] == sensor2]
-            if len(files) == 0:
-                files = [f for f in filelist if LooseVersion(os.path.splitext(f)[0]) <= LooseVersion(sensor2)]
-            if len(files) > 0:
+            if files := [
+                f for f in filelist if os.path.splitext(f)[0] == sensor2
+            ] or [
+                f
+                for f in filelist
+                if LooseVersion(os.path.splitext(f)[0])
+                <= LooseVersion(sensor2)
+            ]:
                 files.sort(key=lambda v:LooseVersion(os.path.splitext(v)[0]), reverse=True)
                 conf_file = os.path.join(epath, files[0])
             logger.debug("in get_engine_conf_file(): passed sensor value: '%s', conf file used: '%s'", sensor, os.path.basename(conf_file))
@@ -484,12 +486,10 @@ def get_engine_conf_file(sensor):
                 contents = fh.readlines()
             logger.debug("Loading config file %s", conf_file)
 
-            engine_config = '\r\n'.join([x.rstrip('\r\n') for x in contents])
+            return '\r\n'.join([x.rstrip('\r\n') for x in contents])
         else:
             logger.warn("No suitable configuration file found for sensor '%s'.", sensor)
-            engine_config = f"# No suitable configuration file found for sensor '{sensor}'."
-        return engine_config
-
+            return f"# No suitable configuration file found for sensor '{sensor}'."
     except Exception as e:
         logger.error("Problem getting configuration file for sensor '%s'.  Error: %s\n%s", sensor, e, traceback.format_exc())
         engine_config = f"# Exception getting configuration file for sensor '{sensor}'."
@@ -498,8 +498,6 @@ def get_engine_conf_file(sensor):
         return engine_config
 
 @dalton_blueprint.route('/dalton/sensor_api/update/', methods=['POST'])
-#@auth_required('write')
-# status update from Dalton Agent
 def sensor_update():
     """ a sensor has submitted an api update"""
     global r
@@ -512,7 +510,7 @@ def sensor_update():
     if int(get_job_status(job)) != STAT_CODE_DONE:
         set_job_status_msg(job, msg)
 
-    logger.debug("Dalton Agent %s sent update for job %s; msg: %s" % (uid, job, msg))
+    logger.debug(f"Dalton Agent {uid} sent update for job {job}; msg: {msg}")
 
     return "OK"
 

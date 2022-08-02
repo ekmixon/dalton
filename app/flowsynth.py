@@ -31,16 +31,18 @@ logger.info("Logging started")
 def payload_raw(formobj):
     """parse and format a raw payload"""
 
-    synth = ""
-
-    if (str(formobj['payload_ts'])) != "":
-        synth = 'default > (content:"%s";);' % fs_replace_badchars(str(formobj.get('payload_ts')))
+    synth = (
+        'default > (content:"%s";);'
+        % fs_replace_badchars(str(formobj.get('payload_ts')))
+        if (str(formobj['payload_ts']))
+        else ""
+    )
 
     if (str(formobj.get('payload_tc'))) != "":
         if (synth != ""):
             synth = "%s\n" % synth
         tcpayload = 'default < (content:"%s";);' % fs_replace_badchars(str(formobj.get('payload_tc')))
-        synth = "%s%s" % (synth, tcpayload)
+        synth = f"{synth}{tcpayload}"
 
     return synth
 
@@ -56,7 +58,7 @@ def payload_http(request):
         request_body = fs_replace_badchars(unicode_safe(request.form.get('request_body')).strip("\r\n")).replace("\r", '\\x0d\\x0a').replace("\n", '\\x0d\\x0a')
         request_body_len = len(request_body) - (request_body.count("\\x") * 3)
     except Exception as e:
-        logger.error("Problem parsing HTTP Wizard payload request content: %s" % e)
+        logger.error(f"Problem parsing HTTP Wizard payload request content: {e}")
         return None
 
     #the start of the flowsynth
@@ -86,7 +88,7 @@ def payload_http(request):
             response_body = fs_replace_badchars(unicode_safe(request.form.get('response_body')).strip("\r\n")).replace("\r", '\\x0d\\x0a').replace("\n", '\\x0d\\x0a')
             response_body_len = len(response_body) - (response_body.count("\\x") * 3)
         except Exception as e:
-            logger.error("Problem parsing HTTP Wizard payload response content: %s" % e)
+            logger.error(f"Problem parsing HTTP Wizard payload response content: {e}")
             return None
 
 
@@ -113,7 +115,7 @@ def payload_http(request):
 
 def payload_cert(formobj):
     # make sure we have stuff we need
-    if not ('cert_file_type' in formobj and 'cert_file' in request.files):
+    if 'cert_file_type' not in formobj or 'cert_file' not in request.files:
         logger.error("No cert submitted")
         return None
 
@@ -123,9 +125,8 @@ def payload_cert(formobj):
             file_content = file_content.decode('utf-8')
             if certsynth.pem_cert_validate(file_content.strip()):
                 return certsynth.cert_to_synth(file_content.strip(), 'PEM')
-            else:
-                logger.error("Unable to validate submitted pem file.")
-                return None
+            logger.error("Unable to validate submitted pem file.")
+            return None
         elif formobj.get('cert_file_type') == 'der':
             return certsynth.cert_to_synth(file_content, 'DER')
         else:
@@ -140,7 +141,7 @@ def fs_replace_badchars(payload):
     """replace characters that conflict with the flowsynth syntax"""
     badchars = ['"', "'", ';', ":", " "]
     for char in badchars:
-        payload = payload.replace(char, "\\x%s" % str(hex(ord(char)))[2:])
+        payload = payload.replace(char, "\\x%s" % hex(ord(char))[2:])
     payload = payload.replace("\r\n", '\\x0d\\x0a')
     return payload
 
@@ -178,16 +179,16 @@ def generate_fs():
     # build src ip statement
     src_ip = str(request.form.get('l3_src_ip'))
     if (src_ip == "$HOME_NET"):
-        src_ip = '192.168.%s.%s' % (random.randint(1, 254), random.randint(1, 254))
+        src_ip = f'192.168.{random.randint(1, 254)}.{random.randint(1, 254)}'
     else:
-        src_ip = '172.16.%s.%s' % (random.randint(1, 254), random.randint(1, 254))
+        src_ip = f'172.16.{random.randint(1, 254)}.{random.randint(1, 254)}'
 
     # build dst ip statement
     dst_ip = str(request.form.get('l3_dst_ip'))
     if (dst_ip == '$HOME_NET'):
-        dst_ip = '192.168.%s.%s' % (random.randint(1, 254), random.randint(1, 254))
+        dst_ip = f'192.168.{random.randint(1, 254)}.{random.randint(1, 254)}'
     else:
-        dst_ip = '172.16.%s.%s' % (random.randint(1, 254), random.randint(1, 254))
+        dst_ip = f'172.16.{random.randint(1, 254)}.{random.randint(1, 254)}'
 
     # build src port statement
     src_port = str(request.form.get('l4_src_port'))
@@ -204,24 +205,24 @@ def generate_fs():
         flow_init_opts = " (tcp.initialize;)"
 
     # define the actual flow in the fs syntax
-    synth = "flow default %s %s:%s > %s:%s%s;" % (
-    str(request.form.get('l3_protocol')).lower(), src_ip, src_port, dst_ip, dst_port, flow_init_opts)
+    synth = f"flow default {str(request.form.get('l3_protocol')).lower()} {src_ip}:{src_port} > {dst_ip}:{dst_port}{flow_init_opts};"
+
 
     payload_fmt = str(request.form.get('payload_format'))
 
     payload_cmds = ""
 
-    if payload_fmt == 'raw':
-        payload_cmds = payload_raw(request.form)
-    elif (payload_fmt == 'http'):
-        payload_cmds = payload_http(request)
-        if payload_cmds is None:
-            return render_template('/pcapwg/error.html', error_text = "Unable to process submitted HTTP Wizard content. See log for more details.")
-    elif (payload_fmt == 'cert'):
+    if payload_fmt == 'cert':
         payload_cmds = payload_cert(request.form)
         if payload_cmds is None:
             return render_template('/pcapwg/error.html', error_text = "Unable to process submitted certificate. See log for more details.")
 
+    elif payload_fmt == 'http':
+        payload_cmds = payload_http(request)
+        if payload_cmds is None:
+            return render_template('/pcapwg/error.html', error_text = "Unable to process submitted HTTP Wizard content. See log for more details.")
+    elif payload_fmt == 'raw':
+        payload_cmds = payload_raw(request.form)
     synth = "%s\n%s" % (synth, payload_cmds)
     return render_template('/pcapwg/compile.html', page='compile', flowsynth_code=synth)
 
@@ -238,28 +239,25 @@ def compile_fs():
     fs_code = str(request.form.get('code'))
     hashobj = hashlib.md5()
     hashobj.update(f"{fs_code}{random.randint(1,10000)}".encode('utf-8'))
-    fname = hashobj.hexdigest()[0:15]
-    output_url = "get_pcap/%s" % (fname)
+    fname = hashobj.hexdigest()[:15]
+    output_url = f"get_pcap/{fname}"
     inpath = tempfile.mkstemp()[1]
-    outpath = "%s/%s.pcap" % (PCAP_PATH, fname)
+    outpath = f"{PCAP_PATH}/{fname}.pcap"
 
-    #write to temp input file
-    fptr = open(inpath,'w')
-    fptr.write(fs_code)
-    fptr.close()
-
+    with open(inpath,'w') as fptr:
+        fptr.write(fs_code)
     #run the flowsynth command
-    command = "%s %s -f pcap -w %s --display json --no-filecontent" % (BIN_PATH, inpath, outpath)
+    command = f"{BIN_PATH} {inpath} -f pcap -w {outpath} --display json --no-filecontent"
+
     print(command)
     proc = subprocess.Popen(shlex.split(command), stdout = subprocess.PIPE, stderr = subprocess.PIPE)
     output = proc.communicate()[0]
-
 	#parse flowsynth json
     try:
         synthstatus = json.loads(output)
     except ValueError:
         #there was a problem producing output.
-        logger.error("Problem processing Flowsynth output: %s" % output)
+        logger.error(f"Problem processing Flowsynth output: {output}")
         return render_template('/pcapwg/error.html', error_text = output)
 
     #delete the tempfile
@@ -283,9 +281,13 @@ def retrieve_pcap(pcapid):
     if not re.match(r"^[A-Za-z0-9\x5F\x2D\x2E]+$", pcapid):
         logger.error("Bad pcapid in get_pcap request: '%s'" % pcapid)
         return render_template('/pcapwg/error.html', error_text = "Bad pcapid: '%s'" % pcapid)
-    path = '%s/%s.pcap' % (PCAP_PATH, os.path.basename(pcapid))
+    path = f'{PCAP_PATH}/{os.path.basename(pcapid)}.pcap'
     if not os.path.isfile(path):
         logger.error("In get_pcap request: file not found: '%s'" % os.path.basename(path))
         return render_template('/pcapwg/error.html', error_text = "File not found: '%s'" % os.path.basename(path))
     filedata = open(path,'rb').read()
-    return Response(filedata,mimetype="application/vnd.tcpdump.pcap", headers={"Content-Disposition":"attachment;filename=%s.pcap" % pcapid})
+    return Response(
+        filedata,
+        mimetype="application/vnd.tcpdump.pcap",
+        headers={"Content-Disposition": f"attachment;filename={pcapid}.pcap"},
+    )

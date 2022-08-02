@@ -148,7 +148,13 @@ def find_file(name):
     ret_path = None
     try:
         # see if it is already in the path by using the 'which' command
-        process = subprocess.Popen("which %s" % name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        process = subprocess.Popen(
+            f"which {name}",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+        )
+
         stdout, stderr = process.communicate()
         if stderr:
             raise
@@ -170,14 +176,16 @@ def get_engine_version(path):
     engine = "unknown"
     version = "unknown"
     try:
-        process = subprocess.Popen("%s -V" % path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        process = subprocess.Popen(
+            f"{path} -V",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+        )
+
         stdout, stderr = process.communicate()
         regex = re.compile(r"(Version|Suricata version)\s+(?P<version>\d+[\d\x2E\x2D\5FA-Za-z]*)")
-        if stderr:
-            # apparently 'Snort -V' outputs to stderr....
-            output = stderr
-        else:
-            output = stdout
+        output = stderr or stdout
         # get engine from output
         if "Suricata" in output.decode('utf-8'):
             engine = "suricata"
@@ -188,10 +196,8 @@ def get_engine_version(path):
             engine = os.path.basename(path).lower()
             logger.warn("Could not determine engine name, using '%s' from IDS_BINARY path" % engine)
 
-        # get version from output
-        result = regex.search(output.decode('utf-8'))
-        if result:
-            version = result.group('version')
+        if result := regex.search(output.decode('utf-8')):
+            version = result['version']
 
         SENSOR_ENGINE_VERSION_ORIG = version
 
@@ -201,10 +207,9 @@ def get_engine_version(path):
             stdout, stderr = process.communicate()
             if "yes" in str(stdout):
                 # rust support exists
-                version = "rust_%s" % version
+                version = f"rust_{version}"
     except Exception as e:
-        logger.warn("Exception in get_engine_version(): %s" % e)
-        pass
+        logger.warn(f"Exception in get_engine_version(): {e}")
     logger.debug("Using IDS binary '%s': engine: '%s', version '%s'" % (path, engine, version))
     return (engine, version)
 
@@ -253,7 +258,6 @@ try:
     TCPDUMP_BINARY = config.get('dalton', 'TCPDUMP_BINARY')
 except Exception as e:
     logger.warn("Unable to get config value 'TCPDUMP_BINARY': %s" % e)
-    pass
 if TCPDUMP_BINARY == 'auto':
     TCPDUMP_BINARY = find_file('tcpdump')
 if not TCPDUMP_BINARY or not os.path.exists(TCPDUMP_BINARY):
@@ -265,7 +269,6 @@ try:
     IDS_BINARY = config.get('dalton', 'IDS_BINARY')
 except Exception as e:
     logger.warn("Unable to get config value 'IDS_BINARY': %s" % e)
-    pass
 if IDS_BINARY == 'auto':
     IDS_BINARY = find_file('suricata')
 if not IDS_BINARY or not os.path.exists(IDS_BINARY):
@@ -292,12 +295,13 @@ else:
 if not SENSOR_ENGINE.startswith("suricata"):
     USE_SURICATA_SOCKET_CONTROL = False
 
-if USE_SURICATA_SOCKET_CONTROL:
-    # Socket Control supported in Suricata 1.4 and later
-    if float('.'.join(prefix_strip(eng_ver).split('.')[:2])) < 3.0:
-        msg = f"Dalton Agent does not support Suricata Socket Control for Suricata versions before 3.0. This is running Suricata version {eng_ver}.  Disabling Suricata Socket Control Mode."
-        logger.warn(msg)
-        USE_SURICATA_SOCKET_CONTROL = False
+if (
+    USE_SURICATA_SOCKET_CONTROL
+    and float('.'.join(prefix_strip(eng_ver).split('.')[:2])) < 3.0
+):
+    msg = f"Dalton Agent does not support Suricata Socket Control for Suricata versions before 3.0. This is running Suricata version {eng_ver}.  Disabling Suricata Socket Control Mode."
+    logger.warn(msg)
+    USE_SURICATA_SOCKET_CONTROL = False
 
 if USE_SURICATA_SOCKET_CONTROL:
     if os.path.isdir(SURICATA_SC_PYTHON_MODULE):
@@ -318,7 +322,7 @@ req_job_url = (f"{DALTON_API}/request_job?"
               )
 
 logger.info("\n*******************")
-logger.info("Starting Dalton Agent version %s:"% AGENT_VERSION)
+logger.info(f"Starting Dalton Agent version {AGENT_VERSION}:")
 logger.debug("\tDEBUG logging: enabled")
 logger.info("\tSENSOR_UID: %s" % SENSOR_UID)
 logger.info("\tSENSOR_ENGINE: %s" % SENSOR_ENGINE)
@@ -334,10 +338,12 @@ if SENSOR_ENGINE.startswith("suricata"):
 # agent is contacting the hostname "dalton_web", then the agent and web server are
 # containers on the same host.
 dalton_web_container = "dalton_web"
-if not 'no_proxy' in os.environ:
-    os.environ['no_proxy'] = dalton_web_container
-else:
-    os.environ['no_proxy'] = "%s,%s" % (os.environ['no_proxy'].rstrip(','), dalton_web_container)
+os.environ['no_proxy'] = (
+    f"{os.environ['no_proxy'].rstrip(',')},{dalton_web_container}"
+    if 'no_proxy' in os.environ
+    else dalton_web_container
+)
+
 logger.info("Added '%s' to 'no_proxy' environment variable." % dalton_web_container)
 
 #************************
@@ -382,9 +388,8 @@ SC_FIRST_RUN = True
 # functions for populating job logs
 def print_error(msg):
     if JOB_ERROR_LOG:
-        fh = open(JOB_ERROR_LOG, "a")
-        fh.write("%s\n" % msg)
-        fh.close()
+        with open(JOB_ERROR_LOG, "a") as fh:
+            fh.write("%s\n" % msg)
     else:
         logger.debug("print_error() called but no JOB_ERROR_LOG exists")
     print_msg("ERROR!")
@@ -401,9 +406,8 @@ def print_msg(msg):
 def print_debug(msg):
     global JOB_DEBUG_LOG
     if JOB_DEBUG_LOG:
-        fh = open(JOB_DEBUG_LOG, "a")
-        fh.write("*****\n%s\n" % msg)
-        fh.close()
+        with open(JOB_DEBUG_LOG, "a") as fh:
+            fh.write("*****\n%s\n" % msg)
     else:
         logger.debug("print_debug() called but no JOB_DEBUG_LOG exists")
 
@@ -424,7 +428,7 @@ class SocketController:
             self.reset_logging()
             self.suricata_is_running = False
         except Exception as e:
-            print_error("Problem initializing Suricata socket control: %s" % e)
+            print_error(f"Problem initializing Suricata socket control: {e}")
 
     def connect(self):
         try:
@@ -432,8 +436,8 @@ class SocketController:
             self.sc.connect()
         except Exception as e:
             self.suricata_is_running = False
-            logger.debug("%s" % traceback.format_exc())
-            print_error("Problem connecting to Unix socket: %s" % e)
+            logger.debug(f"{traceback.format_exc()}")
+            print_error(f"Problem connecting to Unix socket: {e}")
             try:
                 self.close()
             except Exception as e:
@@ -445,7 +449,7 @@ class SocketController:
             #logger.debug("in send_command():\n\tcmd: %s\n\targuments: %s" % (cmd, arguments))
             cmdret = self.sc.send_command(cmd, arguments)
         except Exception as e:
-            print_error("Problem parsing/sending command: %s" % e)
+            print_error(f"Problem parsing/sending command: {e}")
 
         if cmdret["return"] == "NOK":
             print_error("\"NOK\" response received from socket command; message: %s" % json.dumps(cmdret["message"]))
@@ -497,10 +501,9 @@ class SocketController:
         self.suri_startup_log = ''
 
         # pid file
-        if delete_pid_file:
-            if os.path.exists(suricata_sc_pid_file):
-                logger.debug("deleting '%s'" % suricata_sc_pid_file)
-                os.unlink(suricata_sc_pid_file)
+        if delete_pid_file and os.path.exists(suricata_sc_pid_file):
+            logger.debug("deleting '%s'" % suricata_sc_pid_file)
+            os.unlink(suricata_sc_pid_file)
 
     def start_suricata_daemon(self, config):
         """Start Suricata thread with Unix Socket listener."""
@@ -581,11 +584,7 @@ def send_update(msg, job_id = None):
 
     url = f"{DALTON_API}/update/?apikey={API_KEY}"
 
-    params = {}
-    params['uid'] = SENSOR_UID
-    params['msg'] = msg
-    params['job'] = job_id
-
+    params = {'uid': SENSOR_UID, 'msg': msg, 'job': job_id}
     req = urllib.request.Request(url, urllib.parse.urlencode(params).encode('utf-8'), HTTP_HEADERS)
     try:
         urllib.request.urlopen(req, timeout=URLLIB_TIMEOUT)
@@ -607,13 +606,12 @@ def request_job():
     if (data == 'sleep'):
         #sleep
         return None
-    else:
-        #we got a job?
-        try:
-            job = json.loads(data)
-        except Exception as e:
-            print_error(f"Problem loading json from Dalton Controller; could not parse job id from data: '{data}'.")
-        return job
+    #we got a job?
+    try:
+        job = json.loads(data)
+    except Exception as e:
+        print_error(f"Problem loading json from Dalton Controller; could not parse job id from data: '{data}'.")
+    return job
 
 def request_zip(jid):
     url = f"{DALTON_API}/get_job/{jid}?apikey={API_KEY}"
@@ -630,9 +628,8 @@ def request_zip(jid):
 
     zf_path = f"{STORAGE_PATH}/{jid}.zip"
 
-    f = open(zf_path,'wb')
-    f.write(zf.read())
-    f.close()
+    with open(zf_path,'wb') as f:
+        f.write(zf.read())
     return zf_path
 
 # takes a re match object (should be a single byte) and returns it
@@ -650,73 +647,41 @@ def send_results():
     # create and populate results dictionary
     results_dict = {}
 
-    # populate error and status
-    fh = open(JOB_ERROR_LOG, 'r')
-    results = fh.read()
-    results_dict['error'] = results
-    # if JOB_ERROR_LOG contains data
-    if results:
-        results_dict['status'] = "ERROR"
-    else:
-        results_dict['status'] = "SUCCESS"
-    fh.close()
-
+    with open(JOB_ERROR_LOG, 'r') as fh:
+        results = fh.read()
+        results_dict['error'] = results
+            # if JOB_ERROR_LOG contains data
+        results_dict['status'] = "ERROR" if results else "SUCCESS"
     # populate ids log
     results = ''
     with open(JOB_IDS_LOG, 'r') as fh:
         results = fh.read()
     # make sure we have only ASCII
-    results_dict['ids'] = ""
-    for line in results:
-        results_dict['ids'] += nonprintable_re.sub(hexescape, line)
+    results_dict['ids'] = "".join(
+        nonprintable_re.sub(hexescape, line) for line in results
+    )
 
-    # populate alert
-    fh = open(JOB_ALERT_LOG, 'r')
-    results = fh.read()
-    if not results:
-        results_dict['alert'] = "*** No Alerts ***\n"
-    else:
-        results_dict['alert'] = results
-    fh.close()
-
-    # populate alert detailed
-    fh = open(JOB_ALERT_DETAILED_LOG, 'r')
-    results = fh.read()
-    fh.close()
-    if not results: # or error identified in results?
-        results_dict['alert_detailed'] = ""
-    else:
-        results_dict['alert_detailed'] = results
-
-    # populate performance
-    fh = open(JOB_PERFORMANCE_LOG, 'r')
-    results = fh.read()
-    results_dict['performance'] = results
-    fh.close()
-
-    # populate debug
-    fh = open(JOB_DEBUG_LOG, 'r')
-    results = fh.read()
-    results_dict['debug'] = results
-    fh.close()
-
+    with open(JOB_ALERT_LOG, 'r') as fh:
+        results = fh.read()
+        results_dict['alert'] = results or "*** No Alerts ***\n"
+    with open(JOB_ALERT_DETAILED_LOG, 'r') as fh:
+        results = fh.read()
+    results_dict['alert_detailed'] = results or ""
+    with open(JOB_PERFORMANCE_LOG, 'r') as fh:
+        results = fh.read()
+        results_dict['performance'] = results
+    with open(JOB_DEBUG_LOG, 'r') as fh:
+        results = fh.read()
+        results_dict['debug'] = results
     # populate TOTAL_PROCESSING_TIME
     results_dict['total_time'] = TOTAL_PROCESSING_TIME
 
-    # populate other logs (Suricata only for now)
-    # this file actually contains json; Dalton controller will have to (double) decode since
-    # results_dict is json encoded before it is sent
-    fh = open(JOB_OTHER_LOGS, 'r')
-    results = fh.read()
-    results_dict['other_logs'] = results
-    fh.close()
-
-    # populate EVE log
-    fh = open(JOB_EVE_LOG, 'r')
-    results = fh.read()
-    results_dict['eve'] = results
-    fh.close()
-
+    with open(JOB_OTHER_LOGS, 'r') as fh:
+        results = fh.read()
+        results_dict['other_logs'] = results
+    with open(JOB_EVE_LOG, 'r') as fh:
+        results = fh.read()
+        results_dict['eve'] = results
     #comment this out for prod
     #logger.debug(results_dict)
 
@@ -733,13 +698,13 @@ def send_results():
 
 def post_results(json_data):
     #logger.debug("json_data:\n%s" % json_data)
-    url = "%s/results/%s?SENSOR_UID=%s&apikey=%s" % (DALTON_API, JOB_ID, SENSOR_UID, API_KEY)
+    url = f"{DALTON_API}/results/{JOB_ID}?SENSOR_UID={SENSOR_UID}&apikey={API_KEY}"
     req = urllib.request.Request(url, urllib.parse.urlencode(json_data).encode('utf-8'), HTTP_HEADERS)
     try:
         response = urllib.request.urlopen(req, timeout=URLLIB_TIMEOUT)
     except Exception as e:
         try:
-            truncated_url = re.search('(^[^\?]*)', url).group(1)
+            truncated_url = re.search('(^[^\?]*)', url)[1]
         except:
             truncated_url = "unknown"
 
@@ -752,14 +717,16 @@ def post_results(json_data):
 
 def error_post_results(error_msg):
     global SENSOR_UID
-    results_dict = {}
-    results_dict['error'] = "Unexpected error on Dalton Agent \'%s\', please try your job again or contact admin with this message (see \'About\' page for contact info).  Error message:\n\n%s" % (SENSOR_UID, error_msg)
-    results_dict['status'] = "ERROR"
-    results_dict['ids'] = ''
-    results_dict['alert'] = "*** No Alerts ***\n"
-    results_dict['performance'] = ''
-    results_dict['debug'] = ''
-    results_dict['total_time'] = ''
+    results_dict = {
+        'error': "Unexpected error on Dalton Agent \'%s\', please try your job again or contact admin with this message (see \'About\' page for contact info).  Error message:\n\n%s"
+        % (SENSOR_UID, error_msg),
+        'status': "ERROR",
+        'ids': '',
+        'alert': "*** No Alerts ***\n",
+        'performance': '',
+        'debug': '',
+        'total_time': '',
+    }
 
     json_results_dict = json.dumps(results_dict)
     payload = {'json_data': json_results_dict}
@@ -769,15 +736,13 @@ def error_post_results(error_msg):
 def process_snort_alerts():
     print_debug("process_snort_alerts() called")
     print_msg("Processing alerts")
-    os.system("chmod -R 755 %s" % IDS_LOG_DIRECTORY)
+    os.system(f"chmod -R 755 {IDS_LOG_DIRECTORY}")
 
-    job_alert_log_fh = open(JOB_ALERT_LOG, "w")
-    for alert_file in glob.glob(os.path.join(IDS_LOG_DIRECTORY, "alert-full_dalton-agent*")):
-        alert_filehandle = open(alert_file, "r")
-        print_debug("Processing snort alert file %s" % alert_file)
-        job_alert_log_fh.write(alert_filehandle.read())
-        alert_filehandle.close()
-    job_alert_log_fh.close()
+    with open(JOB_ALERT_LOG, "w") as job_alert_log_fh:
+        for alert_file in glob.glob(os.path.join(IDS_LOG_DIRECTORY, "alert-full_dalton-agent*")):
+            with open(alert_file, "r") as alert_filehandle:
+                print_debug(f"Processing snort alert file {alert_file}")
+                job_alert_log_fh.write(alert_filehandle.read())
 
 def check_pcaps():
     """
@@ -793,26 +758,49 @@ def check_pcaps():
             if os.path.exists(TCPDUMP_BINARY):
                 for pcap in PCAP_FILES:
                     # check for TCP packets
-                    if len(subprocess.Popen("%s -nn -q -c 1 -r %s -p tcp 2>/dev/null" % (TCPDUMP_BINARY, pcap), shell=True, stdout=subprocess.PIPE).stdout.read()) > 0:
-                        # check for SYN packets; this only works on IPv4 packets
-                        if len(subprocess.Popen("%s -nn -q -c 1 -r %s \"tcp[tcpflags] & tcp-syn != 0\" 2>/dev/null" % (TCPDUMP_BINARY, pcap), shell=True, stdout=subprocess.PIPE).stdout.read()) == 0:
-                            # check IPv6 packets too
-                            if len(subprocess.Popen("%s -nn -q -c 1 -r %s \"ip6 and tcp and ip6[0x35] & 0x2 != 0\" 2>/dev/null" % (TCPDUMP_BINARY, pcap), shell=True, stdout=subprocess.PIPE).stdout.read()) == 0:
-                                print_error("As Dalton says, \"pain don\'t hurt.\" But an incomplete pcap sure can."
-                                            "\n\n"
-                                            "The pcap file \'%s\' contains TCP traffic but does not "
-                                            "contain any TCP packets with the SYN flag set."
-                                            "\n\n"
-                                            "Almost all IDS rules that look for TCP traffic require "
-                                            "an established connection.\nYou will need to provide a more complete "
-                                            "pcap if you want accurate results."
-                                            "\n\n"
-                                            "If you need help crafting a pcap, Flowsynth may be able to help --\n"
-                                            "https://github.com/secureworks/flowsynth"
-                                            "\n\n"
-                                            "And, \"there's always barber college....\"" % os.path.basename(pcap))
+                    if (
+                        len(
+                            subprocess.Popen(
+                                f"{TCPDUMP_BINARY} -nn -q -c 1 -r {pcap} -p tcp 2>/dev/null",
+                                shell=True,
+                                stdout=subprocess.PIPE,
+                            ).stdout.read()
+                        )
+                        > 0
+                        and len(
+                            subprocess.Popen(
+                                "%s -nn -q -c 1 -r %s \"tcp[tcpflags] & tcp-syn != 0\" 2>/dev/null"
+                                % (TCPDUMP_BINARY, pcap),
+                                shell=True,
+                                stdout=subprocess.PIPE,
+                            ).stdout.read()
+                        )
+                        == 0
+                        and len(
+                            subprocess.Popen(
+                                "%s -nn -q -c 1 -r %s \"ip6 and tcp and ip6[0x35] & 0x2 != 0\" 2>/dev/null"
+                                % (TCPDUMP_BINARY, pcap),
+                                shell=True,
+                                stdout=subprocess.PIPE,
+                            ).stdout.read()
+                        )
+                        == 0
+                    ):
+                        print_error("As Dalton says, \"pain don\'t hurt.\" But an incomplete pcap sure can."
+                                    "\n\n"
+                                    "The pcap file \'%s\' contains TCP traffic but does not "
+                                    "contain any TCP packets with the SYN flag set."
+                                    "\n\n"
+                                    "Almost all IDS rules that look for TCP traffic require "
+                                    "an established connection.\nYou will need to provide a more complete "
+                                    "pcap if you want accurate results."
+                                    "\n\n"
+                                    "If you need help crafting a pcap, Flowsynth may be able to help --\n"
+                                    "https://github.com/secureworks/flowsynth"
+                                    "\n\n"
+                                    "And, \"there's always barber college....\"" % os.path.basename(pcap))
             else:
-                print_debug("In check_pcaps() -- no tcpdump binary found at %s" % TCPDUMP_BINARY)
+                print_debug(f"In check_pcaps() -- no tcpdump binary found at {TCPDUMP_BINARY}")
         except Exception as e:
             if not str(e).startswith("As Dalton says"):
                 print_debug("Error doing TCP SYN check in check_pcaps():\n%s" % e)
@@ -829,7 +817,7 @@ def check_pcaps():
             with open(pcap, 'rb') as fh:
                 bytes = fh.read(44)
 
-            magic = binascii.hexlify(bytes[0:4]).decode('ascii')
+            magic = binascii.hexlify(bytes[:4]).decode('ascii')
             if magic.lower() == '0a0d0d0a':
                 # this is pcapng and these aren't the byte-order magic bytes
                 snaplen_offset = 40
@@ -843,7 +831,7 @@ def check_pcaps():
             if magic.lower() == 'a1b2c3d4':
                 # this is "big endian"
                 little_endian = False
-            elif magic.lower() == '4d3c2b1a' or magic.lower() == 'd4c3b2a1':
+            elif magic.lower() in ['4d3c2b1a', 'd4c3b2a1']:
                 # this is little endian
                 little_endian = True
             else:
@@ -859,10 +847,7 @@ def check_pcaps():
             # Python 2.4 doesn't support this so doing it the ugly way
             #print_debug("Packet capture file \'%s\' is format %s, %s, and has snaplen of %d bytes." % (os.path.basename(pcap), ('pcapng' if pcapng else 'libpcap'), ('little endian' if little_endian else 'big endian'), snaplen))
             debug_msg = "Packet capture file \'%s\' is format " % os.path.basename(pcap)
-            if pcapng:
-                debug_msg += "pcapng, "
-            else:
-                debug_msg += "libpcap, "
+            debug_msg += "pcapng, " if pcapng else "libpcap, "
             if little_endian:
                 debug_msg += "little endian, and has snaplen of %d bytes." % snaplen
             else:
@@ -875,7 +860,7 @@ def check_pcaps():
             # validate snaplen
             if snaplen < 1514:
                 warning_msg = ''
-                if not os.path.getsize(JOB_ERROR_LOG) == 0:
+                if os.path.getsize(JOB_ERROR_LOG) != 0:
                     warning_msg += "\n----------------\n\n"
                 warning_msg += "Warning: \'%s\' was captured using a snaplen of %d bytes.  This may mean you have truncated packets." % (os.path.basename(pcap), snaplen)
                 if snaplen == 1500:
@@ -888,7 +873,7 @@ def check_pcaps():
                 print_error(warning_msg)
     except Exception as e:
         if not str(e).startswith("Warning:"):
-            print_debug("Error doing snaplen check in check_pcaps(): %s" % e)
+            print_debug(f"Error doing snaplen check in check_pcaps(): {e}")
 
 #*************************
 #**** Snort Functions ****
@@ -897,12 +882,12 @@ def run_snort():
     print_debug("run_snort() called")
     IDS_BUFFERS_LOG = os.path.join(IDS_LOG_DIRECTORY, "dalton-buffers.log")
     # note: if we don't have '--treat-drop-as-alert' then some alerts in a stream that has already triggered a 'drop' rule won't fire since they are assumed to already blocked by the DAQ
-    snort_command = "%s -Q --daq dump --daq-dir /usr/lib/daq/ --daq-var load-mode=read-file --daq-var file=/tmp/inline-out.pcap -l %s -c %s -k none -X --conf-error-out --process-all-events --treat-drop-as-alert --pcap-dir=%s --buffer-dump-alert=%s 2>&1" % (IDS_BINARY, IDS_LOG_DIRECTORY, IDS_CONFIG_FILE, os.path.split(PCAP_FILES[0])[0], IDS_BUFFERS_LOG)
+    snort_command = f"{IDS_BINARY} -Q --daq dump --daq-dir /usr/lib/daq/ --daq-var load-mode=read-file --daq-var file=/tmp/inline-out.pcap -l {IDS_LOG_DIRECTORY} -c {IDS_CONFIG_FILE} -k none -X --conf-error-out --process-all-events --treat-drop-as-alert --pcap-dir={os.path.split(PCAP_FILES[0])[0]} --buffer-dump-alert={IDS_BUFFERS_LOG} 2>&1"
+
     print_msg("Starting Snort and Running Pcap(s)...")
     print_debug("Running Snort with the following command command:\n%s" % snort_command)
-    snort_output_fh = open(JOB_IDS_LOG, "w")
-    subprocess.call(snort_command, shell =  True, stderr=subprocess.STDOUT, stdout=snort_output_fh)
-    snort_output_fh.close()
+    with open(JOB_IDS_LOG, "w") as snort_output_fh:
+        subprocess.call(snort_command, shell =  True, stderr=subprocess.STDOUT, stdout=snort_output_fh)
 
 #************************
 #** Suricata Functions **
@@ -918,24 +903,28 @@ def run_suricata_sc():
     print_msg("Running pcap(s) thru Suricata; using socket control")
     config_hash = hash_file(IDS_CONFIG_FILE)
     ruleset_hash = hash_file(sorted(glob.glob(os.path.join(JOB_DIRECTORY, "*.rules"))))
-    logger.debug("NEW config_hash: %s, ruleset_hash: %s" % (config_hash, ruleset_hash))
-    logger.debug("OLD config_hash: %s, ruleset_hash: %s" % (SCONTROL.config_hash, SCONTROL.ruleset_hash))
-    if (not (ruleset_hash == SCONTROL.ruleset_hash and config_hash == SCONTROL.config_hash)) \
-        and SCONTROL.suricata_is_running:
+    logger.debug(f"NEW config_hash: {config_hash}, ruleset_hash: {ruleset_hash}")
+    logger.debug(
+        f"OLD config_hash: {SCONTROL.config_hash}, ruleset_hash: {SCONTROL.ruleset_hash}"
+    )
+
+    if (
+        ruleset_hash != SCONTROL.ruleset_hash
+        or config_hash != SCONTROL.config_hash
+    ) and SCONTROL.suricata_is_running:
         # if hashes don't match, shutdown suri via socket, start new suri, update hashes, run
         print_debug("Suricata Socket Control: new hashes found, restarting Suricata.....")
         SCONTROL.ruleset_hash = ruleset_hash
         SCONTROL.config_hash = config_hash
         SCONTROL.restart_suricata_socket_mode(newconfig=IDS_CONFIG_FILE)
-    else:
-        if not SCONTROL.suricata_is_running:
-            logger.warn("Suricata thread not running ... starting it back up....")
-            SCONTROL.ruleset_hash = ruleset_hash
-            SCONTROL.config_hash = config_hash
-            SCONTROL.restart_suricata_socket_mode(newconfig=IDS_CONFIG_FILE)
-        else:
-            print_debug("New job has same config and ruleset hash, not restarting.")
+    elif SCONTROL.suricata_is_running:
+        print_debug("New job has same config and ruleset hash, not restarting.")
 
+    else:
+        logger.warn("Suricata thread not running ... starting it back up....")
+        SCONTROL.ruleset_hash = ruleset_hash
+        SCONTROL.config_hash = config_hash
+        SCONTROL.restart_suricata_socket_mode(newconfig=IDS_CONFIG_FILE)
     SCONTROL.connect()
     if SC_FIRST_RUN:
         bug4225_versions = ["5.0.5", "5.0.6", "5.0.7", "6.0.1", "6.0.2", "6.0.3", "7.0.0-dev"]
@@ -974,7 +963,7 @@ def run_suricata_sc():
     # queue up the real pcaps
     for pcap in PCAP_FILES:
         resp = SCONTROL.send_command(f"pcap-file {pcap} {IDS_LOG_DIRECTORY}")
-        logger.debug("Sent pcap %s. Response: %s" % (pcap, resp))
+        logger.debug(f"Sent pcap {pcap}. Response: {resp}")
 
     # pcap files submitted (non blocking, they get queued); wait until done
     # note that "pcap-file-number" command returns the number in the queue, and
@@ -1007,15 +996,15 @@ def run_suricata():
             add_options = "-k none"
     except Exception as e:
         add_options = ""
-    suricata_command = "%s -c %s -l %s %s " % (IDS_BINARY, IDS_CONFIG_FILE, IDS_LOG_DIRECTORY, add_options)
+    suricata_command = f"{IDS_BINARY} -c {IDS_CONFIG_FILE} -l {IDS_LOG_DIRECTORY} {add_options} "
+
     if len(PCAP_FILES) > 1:
-        suricata_command += "-r %s" % (os.path.dirname(PCAP_FILES[0]))
+        suricata_command += f"-r {os.path.dirname(PCAP_FILES[0])}"
     else:
-        suricata_command += "-r %s" % (PCAP_FILES[0])
+        suricata_command += f"-r {PCAP_FILES[0]}"
     print_debug("Running suricata with the following command:\n%s" % suricata_command)
-    suri_output_fh = open(JOB_IDS_LOG, "w")
-    subprocess.call(suricata_command, shell = True, stderr=subprocess.STDOUT, stdout=suri_output_fh)
-    suri_output_fh.close()
+    with open(JOB_IDS_LOG, "w") as suri_output_fh:
+        subprocess.call(suricata_command, shell = True, stderr=subprocess.STDOUT, stdout=suri_output_fh)
 
 # generate fast pattern info; this requires a separate Suricata run
 #   with the '--engine-analysis' flag set
@@ -1025,12 +1014,11 @@ def generate_fast_pattern():
     if SENSOR_ENGINE.startswith('suri'):
         if not IDS_BINARY:
             print_error("No Suricata binary found on system.")
-        suricata_command = "%s -c %s -l %s --engine-analysis" % (IDS_BINARY, IDS_CONFIG_FILE, IDS_LOG_DIRECTORY)
+        suricata_command = f"{IDS_BINARY} -c {IDS_CONFIG_FILE} -l {IDS_LOG_DIRECTORY} --engine-analysis"
+
         print_debug("Running suricata with the following command to get fast pattern info:\n%s" % suricata_command)
-        # send output to /dev/null for now
-        suri_output_fh = open(os.devnull, "wb")
-        subprocess.call(suricata_command, shell = True, stderr=subprocess.STDOUT, stdout=suri_output_fh)
-        suri_output_fh.close()
+        with open(os.devnull, "wb") as suri_output_fh:
+            subprocess.call(suricata_command, shell = True, stderr=subprocess.STDOUT, stdout=suri_output_fh)
 
 def process_suri_alerts():
     global JOB_ALERT_LOG, IDS_LOG_DIRECTORY
@@ -1038,14 +1026,12 @@ def process_suri_alerts():
     print_msg("Processing alerts")
     alerts_file = os.path.join(IDS_LOG_DIRECTORY, "dalton-fast.log")
     if os.path.exists(alerts_file):
-        job_alert_log_fh = open(JOB_ALERT_LOG, "w")
-        alert_filehandle = open(alerts_file, "r")
-        for line in alert_filehandle:
-            # can do alert formatting here if we want
-            # for now just add newline between alerts
-            job_alert_log_fh.write("%s\n" % line)
-        alert_filehandle.close()
-        job_alert_log_fh.close()
+        with open(JOB_ALERT_LOG, "w") as job_alert_log_fh:
+            with open(alerts_file, "r") as alert_filehandle:
+                for line in alert_filehandle:
+                    # can do alert formatting here if we want
+                    # for now just add newline between alerts
+                    job_alert_log_fh.write("%s\n" % line)
     else:
         print_debug("No alerts found. File \'%s\' does not exist." % alerts_file)
 
@@ -1070,23 +1056,23 @@ def process_other_logs(other_logs):
     if len(other_logs) > 0:
         all_other_logs = {}
         for log_name in other_logs:
-            if not os.path.exists("%s/%s" % (IDS_LOG_DIRECTORY, other_logs[log_name])):
+            if not os.path.exists(
+                f"{IDS_LOG_DIRECTORY}/{other_logs[log_name]}"
+            ):
                 log_name_new = other_logs[log_name].replace("-", "_")
                 if log_name_new != other_logs[log_name]:
                     print_debug("Log file \'%s\' not present, trying \'%s\'..." % (other_logs[log_name], log_name_new))
                     other_logs[log_name] = log_name_new
-            if os.path.exists("%s/%s" % (IDS_LOG_DIRECTORY, other_logs[log_name])):
-                log_fh = open("%s/%s" % (IDS_LOG_DIRECTORY, other_logs[log_name]), "r")
-                all_other_logs[log_name] = log_fh.read()
-                log_fh.close()
+            if os.path.exists(f"{IDS_LOG_DIRECTORY}/{other_logs[log_name]}"):
+                with open(f"{IDS_LOG_DIRECTORY}/{other_logs[log_name]}", "r") as log_fh:
+                    all_other_logs[log_name] = log_fh.read()
                 if all_other_logs[log_name] == "":
                     print_debug("log \"%s\" is empty, not inclding" % log_name)
                     del all_other_logs[log_name]
             else:
                 print_debug("Requested log file \'%s\' not present, skipping." % other_logs[log_name])
-        other_logs_fh = open(JOB_OTHER_LOGS, "w")
-        other_logs_fh.write(json.dumps(all_other_logs))
-        other_logs_fh.close()
+        with open(JOB_OTHER_LOGS, "w") as other_logs_fh:
+            other_logs_fh.write(json.dumps(all_other_logs))
     else:
         print_debug("No additional logs requested.")
 
@@ -1095,25 +1081,24 @@ def check_for_errors(tech):
     print_debug("check_for_errors() called")
     error_lines = []
     try:
-        ids_log_fh = open(JOB_IDS_LOG, "r")
-        for line in ids_log_fh:
-            if tech.startswith('suri'):
-                if ("<Error>" in line or line.startswith("ERROR") or line.startswith("Failed to parse configuration file")):
-                    error_lines.append(line)
-                    if "bad dump file format" in line or "unknown file format" in line:
-                        error_lines.append("Bad pcap file(s) submitted to Suricata. Pcap files should be in libpcap format (pcapng is not supported in older Suricata versions).\n")
-            elif tech.startswith('snort'):
-                if "ERROR:" in line or "FATAL" in line or "Fatal Error" in line or "Segmentation fault" in line or line.startswith("Error "):
-                    error_lines.append(line)
-                    if "unknown file format" in line:
-                        error_lines.append("Bad pcap file(s) submitted to Snort. Pcap files should be in libpcap or pcapng format.\n")
-            else:
-                logger.warn(f"Unexpected engine value passed to check_for_errors(): {tech}")
-        ids_log_fh.close()
+        with open(JOB_IDS_LOG, "r") as ids_log_fh:
+            for line in ids_log_fh:
+                if tech.startswith('suri'):
+                    if ("<Error>" in line or line.startswith("ERROR") or line.startswith("Failed to parse configuration file")):
+                        error_lines.append(line)
+                        if "bad dump file format" in line or "unknown file format" in line:
+                            error_lines.append("Bad pcap file(s) submitted to Suricata. Pcap files should be in libpcap format (pcapng is not supported in older Suricata versions).\n")
+                elif tech.startswith('snort'):
+                    if "ERROR:" in line or "FATAL" in line or "Fatal Error" in line or "Segmentation fault" in line or line.startswith("Error "):
+                        error_lines.append(line)
+                        if "unknown file format" in line:
+                            error_lines.append("Bad pcap file(s) submitted to Snort. Pcap files should be in libpcap or pcapng format.\n")
+                else:
+                    logger.warn(f"Unexpected engine value passed to check_for_errors(): {tech}")
     except Exception as e:
         print_error("Error reading IDS output file \'%s\'. Error:\n\n%s" % (JOB_IDS_LOG, e))
 
-    if len(error_lines) > 0:
+    if error_lines:
         print_error("Error message(s) found in IDS output. See \"IDS Engine\" tab for more details and/or context:\n\n%s" % '\n'.join(error_lines))
 
 # process unified2 data and populate JOB_ALERT_DETAILED_LOG (only for sensors
@@ -1133,9 +1118,9 @@ def process_unified2_logs():
     unified2_files = set([])
     # unified2 filename set in config on submission
     for u2_file in glob.glob(os.path.join(IDS_LOG_DIRECTORY, "unified2.dalton.alert*")):
-        print_debug("Adding unified2 alert file to processing list: %s" % u2_file)
+        print_debug(f"Adding unified2 alert file to processing list: {u2_file}")
         unified2_files.add(u2_file)
-    if len(unified2_files) == 0:
+    if not unified2_files:
         print_debug("No unified2 files found.")
         return
     # convert set to list so we can access indexes
@@ -1145,14 +1130,12 @@ def process_unified2_logs():
     u2_combined_file = os.path.join(IDS_LOG_DIRECTORY, "dalton-unified2-combined.alerts")
     shutil.copyfile(unified2_files[0], u2_combined_file)
     try:
-        combined_fh = open(u2_combined_file, "ab")
-        for i in range(1, len(unified2_files)):
-            add_fh = open(unified2_files[i], "rb")
-            combined_fh.write(add_fh.read())
-            add_fh.close()
-        combined_fh.close()
+        with open(u2_combined_file, "ab") as combined_fh:
+            for i in range(1, len(unified2_files)):
+                with open(unified2_files[i], "rb") as add_fh:
+                    combined_fh.write(add_fh.read())
     except Exception as e:
-        print_debug("Error processing unified2 files, bailing: %s" % e)
+        print_debug(f"Error processing unified2 files, bailing: {e}")
         return
 
     # b64 it and write!
@@ -1161,25 +1144,26 @@ def process_unified2_logs():
             with  open(u2_combined_file, 'rb') as u2_fh:
                 job_alert_detailed_log_fh.write(base64.b64encode(u2_fh.read()))
     except Exception as e:
-        print_debug("Error processing unified2 files and base64 encoding them for transmission ... bailing. Error: %s" % e)
+        print_debug(
+            f"Error processing unified2 files and base64 encoding them for transmission ... bailing. Error: {e}"
+        )
+
         return
 
 # process performance output (Snort and Suricata)
 def process_performance_logs():
     print_debug("process_performance_logs() called")
     print_msg("Processing performance logs")
-    os.system("chmod -R 755 %s" % IDS_LOG_DIRECTORY)
-    job_performance_log_fh = open(JOB_PERFORMANCE_LOG, "w")
-    if len(glob.glob(os.path.join(IDS_LOG_DIRECTORY, "dalton-rule_perf*"))) > 0:
-        for perf_file in glob.glob(os.path.join(IDS_LOG_DIRECTORY, "dalton-rule_perf*")):
-            perf_filehandle = open(perf_file, "r")
-            print_debug("Processing rule performance log file %s" % perf_file)
-            job_performance_log_fh.write(perf_filehandle.read())
-            job_performance_log_fh.write("\n")
-            perf_filehandle.close()
-    else:
-        print_debug("No rules performance log(s) found. File \'%s\' does not exist." % "dalton-rule_perf*")
-    job_performance_log_fh.close()
+    os.system(f"chmod -R 755 {IDS_LOG_DIRECTORY}")
+    with open(JOB_PERFORMANCE_LOG, "w") as job_performance_log_fh:
+        if len(glob.glob(os.path.join(IDS_LOG_DIRECTORY, "dalton-rule_perf*"))) > 0:
+            for perf_file in glob.glob(os.path.join(IDS_LOG_DIRECTORY, "dalton-rule_perf*")):
+                with open(perf_file, "r") as perf_filehandle:
+                    print_debug(f"Processing rule performance log file {perf_file}")
+                    job_performance_log_fh.write(perf_filehandle.read())
+                    job_performance_log_fh.write("\n")
+        else:
+            print_debug("No rules performance log(s) found. File \'%s\' does not exist." % "dalton-rule_perf*")
 
 #****************************
 #*** Submit Job Functions ***
